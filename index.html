@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+<meta name="description" content="A living hourglass for the time you have left." />
+<meta name="theme-color" content="#050507" />
+<!-- iOS: installable as a fullscreen home-screen app -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Life" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%E2%8F%B3</text></svg>" />
+<title>Sand Timer for Life</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bone: #e8e2d6;
+    --gold: #f5e0b4;
+    --dim: rgba(220,210,190,.55);
+    --faint: rgba(220,210,190,.42);
+    --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  /* Root font scales with the viewport (vmin) so the WHOLE UI stays proportional
+     at any browser zoom — capped so it never balloons or shrinks to nothing.
+     UI sizes below are in rem and inherit this one fluid scale. */
+  html { font-size: clamp(13px, 1.05vmin + 8px, 20px); }
+  html, body { width: 100%; height: 100%; background: #050507; overflow: hidden; }
+  body { font-family: var(--serif); color: var(--bone); touch-action: none; -webkit-font-smoothing: antialiased; }
+  #c { display: block; width: 100vw; height: 100vh; }
+
+  .overlay { position: fixed; inset: 0; pointer-events: none;
+    padding: max(1.2rem, env(safe-area-inset-top)) 1.2rem max(1.2rem, env(safe-area-inset-bottom)); }
+
+  /* ---- Readout (top center) ---- */
+  #readout { position: absolute; top: max(1.2rem, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%); width: calc(100% - 9rem); max-width: 33rem; text-align: center;
+    opacity: 0; transition: opacity 1.4s ease .3s; }
+  #readout.show { opacity: 1; }
+  #secs { font-family: var(--mono); font-weight: 600; font-size: 2.5rem; letter-spacing: .02em;
+    color: var(--gold); text-shadow: 0 2px 22px rgba(0,0,0,.85); font-variant-numeric: tabular-nums;
+    line-height: 1; will-change: transform; transform-origin: center; }
+  /* Subtle per-second pulse — a faint settle, no color flash. */
+  #secs.tick { animation: breath .85s cubic-bezier(.22,.61,.36,1); }
+  @keyframes breath { 0% { transform: scale(1.018); } 100% { transform: scale(1); } }
+  #secs-label { margin-top: .45rem; font-size: .62rem; letter-spacing: .3em; text-transform: uppercase;
+    color: var(--dim); text-shadow: 0 1px 6px rgba(0,0,0,.9); }
+  #row { margin-top: .7rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 1.3rem; }
+  #row .s { display: flex; flex-direction: column; align-items: center; gap: .12rem; }
+  #row .v { font-family: var(--mono); font-size: .92rem; color: var(--bone);
+    font-variant-numeric: tabular-nums; text-shadow: 0 1px 6px rgba(0,0,0,.9); }
+  #row .l { font-size: .56rem; letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
+    text-shadow: 0 1px 6px rgba(0,0,0,.9); }
+
+  /* ---- Caveat (bottom) ---- */
+  #caveat { position: absolute; left: 50%; bottom: max(1.2rem, env(safe-area-inset-bottom));
+    transform: translateX(-50%); width: min(34rem, 84vw); text-align: center; font-style: italic;
+    font-size: .95rem; line-height: 1.55; color: var(--dim); text-shadow: 0 1px 8px rgba(0,0,0,.8);
+    opacity: 0; transition: opacity 1.8s ease .7s; }
+  #caveat.show { opacity: 1; }
+
+  /* ---- Setup card (clean, legible over the bright glass) ---- */
+  #setup { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 1.5rem;
+    padding: 2.3rem 2.4rem 2rem; width: min(24rem, 90vw); text-align: center;
+    background: rgba(10,10,16,.66); border: 1px solid rgba(220,210,190,.12); border-radius: 14px;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 24px 70px rgba(0,0,0,.55); }
+  #setup h1 { font-weight: 500; font-size: 1.55rem; letter-spacing: .01em; color: rgba(232,226,214,.95); }
+  #dob-field { display: inline-flex; }
+  /* Native date control: OS scroll-wheel on mobile, calendar on desktop. */
+  #dob { font-family: var(--mono); font-weight: 500; font-size: 1.3rem; color: var(--gold);
+    background: rgba(0,0,0,.3); color-scheme: dark; border: 1px solid rgba(220,210,190,.18);
+    border-radius: 8px; padding: .6rem .9rem; text-align: center; cursor: pointer;
+    font-variant-numeric: tabular-nums; transition: border-color .2s; }
+  #dob:hover, #dob:focus { outline: none; border-color: rgba(245,224,180,.55); }
+  #dob::-webkit-calendar-picker-indicator { filter: invert(.85) sepia(.6) saturate(3) hue-rotate(-12deg);
+    opacity: .75; cursor: pointer; }
+  #dob::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+  #begin { pointer-events: auto; cursor: pointer; padding: .7rem 2.6rem; font-family: var(--serif);
+    font-size: .82rem; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; color: #1a140c;
+    border: none; border-radius: 999px; background: linear-gradient(180deg,#ffe4b0,#e9b878);
+    transition: filter .2s, transform .2s; }
+  #begin:hover { filter: brightness(1.06); transform: translateY(-1px); }
+  #begin:active { filter: brightness(1.1); }
+  #note { font-size: .82rem; font-style: italic; line-height: 1.5; color: var(--faint); max-width: 19rem; }
+
+  /* Reset: compact, top-right; short label so it never crowds the readout. */
+  #reset { position: absolute; top: max(1.2rem, env(safe-area-inset-top)); right: 1.2rem; z-index: 3;
+    pointer-events: auto; cursor: pointer; padding: .4rem 1rem; font-family: var(--serif);
+    font-size: .66rem; letter-spacing: .18em; text-transform: uppercase; color: var(--faint);
+    background: rgba(10,10,16,.5); border: 1px solid rgba(220,210,190,.14); border-radius: 999px;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); transition: color .2s, border-color .2s; }
+  #reset:hover { color: var(--bone); border-color: rgba(245,224,180,.4); }
+
+  #ended { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    font-family: var(--serif); font-style: italic; font-size: 1.5rem; letter-spacing: .04em;
+    color: var(--bone); text-shadow: 0 2px 18px rgba(0,0,0,.9); opacity: 0; transition: opacity 3s ease; }
+  .hidden { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #readout, #caveat { transition: none; }
+    #secs.tick { animation: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="overlay">
+  <div id="readout" class="hidden">
+    <div id="secs">0</div>
+    <div id="secs-label">seconds remaining</div>
+    <div id="row">
+      <div class="s"><span class="v" id="v-years">0</span><span class="l">years</span></div>
+      <div class="s"><span class="v" id="v-months">0</span><span class="l">months</span></div>
+      <div class="s"><span class="v" id="v-weeks">0</span><span class="l">weeks</span></div>
+      <div class="s"><span class="v" id="v-days">0</span><span class="l">days</span></div>
+    </div>
+  </div>
+
+  <button id="reset" class="hidden">reset</button>
+  <div id="ended" class="hidden">the sand has run out</div>
+
+  <form id="setup">
+    <h1>When were you born?</h1>
+    <!-- Native date control: opens the OS scroll-wheel on mobile and a calendar
+         on desktop. Fewest clicks, accessible, zero library, works offline. -->
+    <label id="dob-field"><input id="dob" type="date" aria-label="Date of birth" /></label>
+    <button id="begin" type="submit">begin</button>
+    <p id="note">Assuming a life of 70 years. The top is the time still ahead of you; the bottom, the years already spent.</p>
+  </form>
+
+  <p id="caveat">The grains show that time is always flowing. The sand levels are the truth — they fall in real time, just too slowly to watch.</p>
+</div>
+
+<!-- Three.js from CDN via import map keeps this file readable (vs. a ~1.3 MB
+     inlined blob). To run fully offline, vendor these files locally and point
+     the map at them. The date picker is the native control — no library. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+// @ts-check
+/**
+ * Sand Timer for Life — a single-file, modular, dependency-light 3D hourglass.
+ *
+ * Enter your date of birth; assuming a 70-year life, the sand settles to the
+ * true proportion lived vs. ahead, then a thin constant trickle marks time
+ * passing. The remaining fraction is a PURE function of the wall clock, so it
+ * always reflects "now" and survives reloads with no replay.
+ *
+ * Style: each concern is a factory closure returning a frozen API (the revealing
+ * module pattern — YDKJS). Types are documented with JSDoc + `// @ts-check` so
+ * the file is type-checked with no build step (Effective TypeScript). A single
+ * frozen CONFIG holds the tunables (Crockford: less is more).
+ */
+
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GPUComputationRenderer } from 'three/addons/misc/GPUComputationRenderer.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* ===========================================================================
+ * CONFIG — all tunables in one frozen place.
+ * ======================================================================== */
+const CONFIG = Object.freeze({
+  storageKey: 'sand-timer.life.v3',
+  introSeconds: 5,                 // opening "pour the years lived" animation
+  msPerYear: 365.2425 * 86400000,  // mean Gregorian year
+  expectancyYears: 70,             // assumed lifespan for everyone
+  vessel: Object.freeze({ H: 2.2, rNeck: 0.05, rEnd: 1.0 }),
+  reposeDeg: 33,                   // angle of repose of the bottom pile
+  craterDeg: 38,                   // steeper draining crater in the top bulb
+  minTopSliver: 0.012,             // keep a visible top layer until life is over
+  stream: Object.freeze({
+    width: 22,        // width² grains in flight — low volume, a sparse thread
+    gravity: 1.3,     // gentle fall so grains are clearly visible descending
+    grainDivisor: 7,  // grain diameter = neckDiameter / grainDivisor (fine sand)
+  }),
+  camera: Object.freeze({ pos: [0, 0.6, 9], fov: 40 }),
+});
+
+/* ===========================================================================
+ * Pure helpers.
+ * ======================================================================== */
+const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+const clamp01 = (x) => clamp(x, 0, 1);
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const smootherstep = (x) => { x = clamp01(x); return x * x * x * (x * (x * 6 - 15) + 10); };
+/** @param {number} n @param {number} [d] */
+const fmt = (n, d = 0) =>
+  n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+
+/* Shared type definitions (JSDoc — checked by `// @ts-check`, no build step). */
+/** @typedef {{ birth:number, death:number }} LifeConfig */
+/** @typedef {{ secs:number, years:number, months:number, weeks:number, days:number }} Breakdown */
+/** @typedef {{ fTruth:number, fRender:number, elapsed:number, terminal:boolean, active:boolean }} Runtime */
+
+/* ===========================================================================
+ * createLifeStore — persistence + the pure time math (the single source of truth).
+ * ======================================================================== */
+function createLifeStore() {
+  const { storageKey: KEY, msPerYear: MSY, expectancyYears: EXP } = CONFIG;
+
+  /**
+   * Freeze a life from a date of birth. Death = birth + 70 years. Everything
+   * else is derived live from the real clock, so the numbers always reflect
+   * "now" — reopen tomorrow and it's one day less.
+   * @param {number} birthMs absolute UTC ms of birth
+   * @returns {LifeConfig}
+   */
+  function freeze(birthMs) {
+    return { birth: birthMs, death: birthMs + EXP * MSY };
+  }
+  /** Parse a YYYY-MM-DD birth date to UTC ms; null if invalid/future. */
+  function parseBirth(dateStr, now) {
+    const ms = Date.parse(dateStr);
+    if (Number.isNaN(ms) || ms > now) return null;
+    return ms;
+  }
+  /** @returns {LifeConfig|null} */
+  function load() {
+    try {
+      const c = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (c && c.death > c.birth) return c;
+    } catch { /* ignore corrupt storage */ }
+    return null;
+  }
+  /** @param {LifeConfig} c */
+  const save = (c) => { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch { /* private mode */ } };
+  const clear = () => { try { localStorage.removeItem(KEY); } catch { /* ignore */ } };
+
+  /** Remaining fraction = remaining/expectancy. Pure, stateless. @param {LifeConfig} c */
+  function fraction(c, now) {
+    const T = c.death - c.birth;
+    return T <= 0 ? 0 : clamp01((c.death - now) / T);
+  }
+  /** @param {LifeConfig} c @returns {Breakdown} */
+  function breakdown(c, now) {
+    const ms = Math.max(0, c.death - now);
+    const days = ms / 86400000;
+    return { secs: Math.floor(ms / 1000), years: ms / MSY, months: ms / (MSY / 12), weeks: days / 7, days };
+  }
+  return Object.freeze({ freeze, parseBirth, load, save, clear, fraction, breakdown });
+}
+
+/* ===========================================================================
+ * createProfile — the SINGLE source of vessel geometry. radius(y) drives the
+ * glass lathe, the sand bodies, grain confinement, and a cumulative-volume
+ * table so a fill fraction maps to a surface height BY VOLUME (honest in a
+ * tapered chamber). y runs [-H, +H]; the neck is at y = 0.
+ * ======================================================================== */
+function createProfile() {
+  const { H, rNeck, rEnd } = CONFIG.vessel;
+
+  const radiusAt = (y) => rNeck + (rEnd - rNeck) * smootherstep(Math.min(Math.abs(y) / H, 1));
+
+  const N = 1024;
+  const ys = new Float64Array(N + 1);
+  const cum = new Float64Array(N + 1);
+  let acc = 0, prev = Math.PI * radiusAt(-H) ** 2;
+  ys[0] = -H; cum[0] = 0;
+  const dy = (2 * H) / N;
+  for (let i = 1; i <= N; i++) {
+    const y = -H + dy * i;
+    const a = Math.PI * radiusAt(y) ** 2;
+    acc += 0.5 * (prev + a) * dy; ys[i] = y; cum[i] = acc; prev = a;
+  }
+  const total = acc;
+  const bulbVolume = cum[N / 2];
+
+  function heightForVolume(v) {
+    v = clamp(v, 0, total);
+    let lo = 0, hi = N;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cum[m] < v) lo = m; else hi = m; }
+    const d = cum[hi] - cum[lo] || 1;
+    return lerp(ys[lo], ys[hi], (v - cum[lo]) / d);
+  }
+  /** @returns {THREE.Vector2[]} bottom→top lathe outline (x = radius > 0, y) */
+  function lathePoints(samples = 256) {
+    const pts = [];
+    for (let i = 0; i <= samples; i++) {
+      const y = -H + (2 * H * i) / samples;
+      pts.push(new THREE.Vector2(Math.max(radiusAt(y), 1e-4), y));
+    }
+    return pts;
+  }
+  const topSurfaceY = (f) => heightForVolume(bulbVolume + clamp01(f) * bulbVolume);
+
+  return Object.freeze({ H, rNeck, rEnd, radiusAt, lathePoints, heightForVolume, bulbVolume, topSurfaceY });
+}
+
+/* ===========================================================================
+ * createSandSurface — the two solid sand bodies (lathe outlines). Volumes are
+ * honest (slaved to the fraction); shapes obey the angle of repose.
+ * ======================================================================== */
+function createSandSurface(profile) {
+  const { H, rNeck, radiusAt, bulbVolume, topSurfaceY } = profile;
+  const REPOSE = Math.tan((CONFIG.reposeDeg * Math.PI) / 180);
+  const CRATER = Math.tan((CONFIG.craterDeg * Math.PI) / 180);
+  const EPS = 1e-3;
+
+  const bottomR = (y, apexY) => (y > apexY ? 0 : Math.min((apexY - y) / REPOSE, radiusAt(y)));
+  function bottomVolume(apexY) {
+    const yTop = Math.min(apexY, 0);
+    if (yTop <= -H) return 0;
+    const n = 120, d = (yTop + H) / n;
+    let v = 0, prev = Math.PI * bottomR(-H, apexY) ** 2;
+    for (let i = 1; i <= n; i++) { const a = Math.PI * bottomR(-H + d * i, apexY) ** 2; v += 0.5 * (prev + a) * d; prev = a; }
+    return v;
+  }
+  function solveApex(targetVol) {
+    let lo = -H, hi = 0;
+    for (let i = 0; i < 38; i++) { const m = (lo + hi) / 2; if (bottomVolume(m) < targetVol) lo = m; else hi = m; }
+    return (lo + hi) / 2;
+  }
+  /** Y of the bottom pile's apex for fraction f (where a thin stream lands). */
+  function bottomApexY(f) {
+    const target = (1 - clamp01(f)) * bulbVolume;
+    if (target <= bulbVolume * 1e-4) return -H;
+    return Math.min(solveApex(target), 0);
+  }
+  /** @returns {THREE.Vector2[]|null} */
+  function bottomProfile(f) {
+    const target = (1 - clamp01(f)) * bulbVolume;
+    if (target <= bulbVolume * 1e-4) return null;
+    const apexY = solveApex(target);
+    if (apexY <= -H + EPS) return null;
+    const pts = [new THREE.Vector2(EPS, -H)];
+    const n = 160, d = (Math.min(apexY, 0) + H) / n;
+    for (let i = 0; i <= n; i++) { const y = -H + d * i; pts.push(new THREE.Vector2(Math.max(bottomR(y, apexY), EPS), y)); }
+    pts.push(new THREE.Vector2(EPS, Math.min(apexY, 0)));
+    return pts;
+  }
+  /** @returns {THREE.Vector2[]|null} */
+  function topProfile(f) {
+    const frac = clamp01(f);
+    if (frac <= 0) return null; // only truly empty when life is over
+    // Floor the rendered layer to a visible sliver so "1 day left" still shows a
+    // little sand up top (a literal tiny fraction would be sub-pixel).
+    const shown = Math.max(frac, CONFIG.minTopSliver);
+    const yf = topSurfaceY(shown);
+    if (yf <= EPS) return null;
+    const rW = radiusAt(yf);
+    const depth = Math.min(0.2, 0.4 * rW, yf * 0.9);
+    const rCr = Math.min(depth / CRATER, rW * 0.85);
+    const pts = [new THREE.Vector2(EPS, 0), new THREE.Vector2(EPS, Math.max(yf - depth, EPS)),
+      new THREE.Vector2(rCr, yf), new THREE.Vector2(rW, yf)];
+    const n = 60;
+    for (let i = 1; i <= n; i++) { const y = yf - (yf * i) / n; pts.push(new THREE.Vector2(Math.max(radiusAt(y), rNeck, EPS), y)); }
+    pts.push(new THREE.Vector2(EPS, 0));
+    return pts;
+  }
+  return Object.freeze({ bottomProfile, topProfile, bottomApexY });
+}
+
+/* ===========================================================================
+ * GLSL — GPGPU compute (position + velocity) and grain rendering. The thin
+ * trickle: grains spawn at the neck, fall, and recycle into the solid pile.
+ * ======================================================================== */
+const profileGLSL = /* glsl */ `
+  const float PROF_H=${CONFIG.vessel.H.toFixed(4)};
+  const float PROF_RNECK=${CONFIG.vessel.rNeck.toFixed(4)};
+  const float PROF_REND=${CONFIG.vessel.rEnd.toFixed(4)};
+  float smoother(float x){ x=clamp(x,0.0,1.0); return x*x*x*(x*(x*6.0-15.0)+10.0); }
+  float radiusAtY(float y){ return PROF_RNECK+(PROF_REND-PROF_RNECK)*smoother(min(abs(y)/PROF_H,1.0)); }
+  float hash11(float p){ p=fract(p*0.1031); p*=p+33.33; p*=p+p; return fract(p); }
+  vec2 hash21(float p){ return vec2(hash11(p),hash11(p+7.31)); }`;
+
+const POSITION_FRAG = /* glsl */ `
+  uniform float uDt,uTime,uNeckR,uPileY,uEmitting;
+  ${profileGLSL}
+  void main(){
+    vec2 uv=gl_FragCoord.xy/resolution.xy;
+    vec4 pl=texture2D(texPosition,uv); vec4 vel=texture2D(texVelocity,uv);
+    vec3 pos=pl.xyz; float life=pl.w;
+    float id=gl_FragCoord.x+gl_FragCoord.y*resolution.x;
+    pos+=vel.xyz*uDt; life-=uDt;
+    bool respawn = pos.y<=uPileY+0.02 || life<=0.0;
+    if(respawn){
+      if(uEmitting>0.5){
+        vec2 r=hash21(id+uTime*9.7); float a=r.x*6.2831853; float rad=uNeckR*0.4*sqrt(r.y);
+        pos=vec3(cos(a)*rad,-0.02-r.y*0.05,sin(a)*rad);
+        life=2.4+hash11(id+uTime)*1.2;
+      } else { pos=vec3(0.0,uPileY-1.0,0.0); life=1.0; }
+    }
+    gl_FragColor=vec4(pos,life);
+  }`;
+
+const VELOCITY_FRAG = /* glsl */ `
+  uniform float uDt,uTime,uGravity,uNeckR,uPileY,uEmitting;
+  ${profileGLSL}
+  void main(){
+    vec2 uv=gl_FragCoord.xy/resolution.xy;
+    vec4 pl=texture2D(texPosition,uv); vec4 vel=texture2D(texVelocity,uv);
+    vec3 p=pl.xyz; vec3 v=vel.xyz; float life=pl.w; float seed=vel.w;
+    float id=gl_FragCoord.x+gl_FragCoord.y*resolution.x;
+    if(pl.y<=uPileY+0.02 || life<=0.0){
+      if(uEmitting>0.5){ vec2 j=hash21(id+uTime*4.2)-0.5; v=vec3(j.x*0.03,-0.16-hash11(id+uTime)*0.08,j.y*0.03); }
+      else v=vec3(0.0);
+      gl_FragColor=vec4(v,seed); return;
+    }
+    v.y-=uGravity*uDt;
+    float r=length(p.xz)+1e-5; vec2 inward=-p.xz/r; v.xz+=inward*0.10*uDt;
+    vec2 t=hash21(id+uTime*6.0)-0.5; v.xz+=t*0.04*uDt;
+    float wall=radiusAtY(p.y)*0.98;
+    if(r>wall){ vec2 n=p.xz/r; float vn=dot(v.xz,n); if(vn>0.0) v.xz-=1.4*vn*n; v.xz*=0.6; }
+    if(v.y<-1.8) v.y=-1.8;
+    gl_FragColor=vec4(v,seed);
+  }`;
+
+const RENDER_VERT = /* glsl */ `
+  uniform sampler2D uPositions; uniform float uGrainSize,uProjScale;
+  attribute vec2 reference; varying float vLife;
+  void main(){
+    vec4 pl=texture2D(uPositions,reference); vLife=pl.w;
+    vec4 mv=modelViewMatrix*vec4(pl.xyz,1.0); float dist=max(-mv.z,0.001);
+    gl_Position=projectionMatrix*mv;
+    gl_PointSize=clamp(uGrainSize*uProjScale/dist,1.0,7.0);
+  }`;
+
+const RENDER_FRAG = /* glsl */ `
+  precision highp float;
+  uniform vec3 uColorBright,uColorDark; uniform float uGlow,uGrainAlpha; varying float vLife;
+  void main(){
+    vec2 c=gl_PointCoord-0.5; float d=dot(c,c);
+    if(d>0.25) discard;
+    float alpha=smoothstep(0.25,0.16,d)*uGrainAlpha; if(alpha<0.01) discard;
+    float t=clamp(0.35+0.65*fract(vLife*1.37),0.0,1.0);
+    vec3 col=mix(uColorDark,uColorBright,t);
+    float core=smoothstep(0.25,0.0,d); col*=(0.7+0.4*core)*uGlow;
+    gl_FragColor=vec4(col,alpha);
+  }`;
+
+/* ===========================================================================
+ * createStream — the GPGPU falling-grain trickle.
+ * ======================================================================== */
+function createStream(renderer, profile, surface) {
+  const W = CONFIG.stream.width;
+  const neckR = profile.rNeck;
+  const gpu = new GPUComputationRenderer(W, W, renderer);
+
+  const pos = gpu.createTexture();
+  const vel = gpu.createTexture();
+  const pd = pos.image.data, vd = vel.image.data;
+  for (let i = 0; i < W * W; i++) {
+    const o = i * 4, a = Math.random() * Math.PI * 2, rad = neckR * 0.4 * Math.sqrt(Math.random()), drop = Math.random();
+    pd[o] = Math.cos(a) * rad; pd[o + 1] = -0.02 - drop * 1.2; pd[o + 2] = Math.sin(a) * rad; pd[o + 3] = 0.3 + Math.random() * 3.2;
+    vd[o] = (Math.random() - 0.5) * 0.03; vd[o + 1] = -0.16 - Math.random() * 0.08; vd[o + 2] = (Math.random() - 0.5) * 0.03; vd[o + 3] = Math.random();
+  }
+  const posVar = gpu.addVariable('texPosition', POSITION_FRAG, pos);
+  const velVar = gpu.addVariable('texVelocity', VELOCITY_FRAG, vel);
+  gpu.setVariableDependencies(posVar, [posVar, velVar]);
+  gpu.setVariableDependencies(velVar, [posVar, velVar]);
+  const pu = posVar.material.uniforms, vu = velVar.material.uniforms;
+  pu.uDt = { value: 0 }; pu.uTime = { value: 0 }; pu.uNeckR = { value: neckR }; pu.uPileY = { value: -1 }; pu.uEmitting = { value: 1 };
+  vu.uDt = { value: 0 }; vu.uTime = { value: 0 }; vu.uGravity = { value: CONFIG.stream.gravity }; vu.uNeckR = { value: neckR }; vu.uPileY = { value: -1 }; vu.uEmitting = { value: 1 };
+  const err = gpu.init();
+  if (err) console.error('GPUComputationRenderer:', err);
+
+  const count = W * W;
+  const refs = new Float32Array(count * 2);
+  for (let i = 0; i < count; i++) { refs[i * 2] = (i % W) / W; refs[i * 2 + 1] = Math.floor(i / W) / W; }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+  geo.setAttribute('reference', new THREE.BufferAttribute(refs, 2));
+  const grainSize = (neckR * 2) / CONFIG.stream.grainDivisor;
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uPositions: { value: null }, uGrainSize: { value: grainSize }, uProjScale: { value: 1000 },
+      uColorBright: { value: new THREE.Color('#f6e1ad') }, uColorDark: { value: new THREE.Color('#c89a58') },
+      uGlow: { value: 1.0 }, uGrainAlpha: { value: 1 },
+    },
+    // The opaque glass writes depth, so depth-tested grains behind it would be
+    // discarded. depthTest:false + a high renderOrder draws the thin thread over
+    // the glass — exactly how sand seen through a vessel reads. No sort flicker.
+    vertexShader: RENDER_VERT, fragmentShader: RENDER_FRAG, transparent: true,
+    depthTest: false, depthWrite: false,
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  points.renderOrder = 10;
+
+  /** @param {number} dt @param {number} f @param {boolean} emitting */
+  function update(dt, f, emitting) {
+    const step = Math.min(dt, 0.05);
+    if (step <= 0) return;
+    const pileY = emitting ? surface.bottomApexY(f) : -1;
+    pu.uDt.value = step; pu.uTime.value += step; pu.uPileY.value = pileY; pu.uEmitting.value = emitting ? 1 : 0;
+    vu.uDt.value = step; vu.uTime.value += step; vu.uPileY.value = pileY; vu.uEmitting.value = emitting ? 1 : 0;
+    gpu.compute();
+    mat.uniforms.uPositions.value = gpu.getCurrentRenderTarget(posVar).texture;
+    mat.uniforms.uGrainAlpha.value = emitting ? 1 : 0;
+  }
+  const setProjScale = (s) => { mat.uniforms.uProjScale.value = s; };
+  return Object.freeze({ object: points, update, setProjScale });
+}
+
+/* ===========================================================================
+ * createWorld — renderer, scene, camera, lights, glass, sand. Owns rendering.
+ * ======================================================================== */
+function createWorld(canvas, profile, surface) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.95;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#050507');
+  scene.fog = new THREE.Fog('#050507', 9, 20);
+
+  const [cxp, cyp, czp] = CONFIG.camera.pos;
+  const camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, 1, 0.1, 100);
+  camera.position.set(cxp, cyp, czp);
+
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.22; // dim reflections so sand reads matte
+
+  scene.add(new THREE.AmbientLight('#3a4256', 0.35));
+  const key = new THREE.DirectionalLight('#ffd9a0', 2.6);
+  key.position.set(4, 7, 3);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.radius = 6;
+  Object.assign(key.shadow.camera, { near: 1, far: 20, left: -4, right: 4, top: 5, bottom: -5 });
+  key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
+  scene.add(key);
+  const back = new THREE.DirectionalLight('#5b78c0', 1.1); back.position.set(-5, 2, -4); scene.add(back);
+
+  const glassGeo = new THREE.LatheGeometry(profile.lathePoints(256), 96);
+  const glass = new THREE.Mesh(glassGeo, new THREE.MeshPhysicalMaterial({
+    color: '#ffffff', metalness: 0, roughness: 0.18, transmission: 1, thickness: 0.4,
+    ior: 1.45, attenuationColor: new THREE.Color('#e8dcca'), attenuationDistance: 3.5,
+    envMapIntensity: 0.35, side: THREE.DoubleSide, transparent: false,
+  }));
+  glass.castShadow = true; scene.add(glass);
+
+  const wood = new THREE.MeshStandardMaterial({ color: '#2a1d12', roughness: 0.6, metalness: 0.05 });
+  const capR = profile.rEnd * 1.18, capH = 0.16;
+  for (const s of [1, -1]) {
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(capR, capR, capH, 48), wood);
+    cap.position.y = s * (profile.H + capH / 2 - 0.01); cap.castShadow = true; scene.add(cap);
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2, r = profile.rEnd * 1.12;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2 * (profile.H + capH), 12), wood);
+    post.position.set(Math.cos(a) * r, 0, Math.sin(a) * r); post.castShadow = true; scene.add(post);
+  }
+
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(12, 64),
+    new THREE.MeshStandardMaterial({ color: '#0a0a0e', roughness: 0.85, metalness: 0.1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.y = -profile.H - 0.32; ground.receiveShadow = true; scene.add(ground);
+
+  const sandMat = new THREE.MeshStandardMaterial({
+    color: '#c2a06a', roughness: 1, metalness: 0, envMapIntensity: 0.15,
+  });
+  const topMesh = new THREE.Mesh(new THREE.BufferGeometry(), sandMat);
+  const botMesh = new THREE.Mesh(new THREE.BufferGeometry(), sandMat);
+  for (const m of [topMesh, botMesh]) { m.castShadow = true; m.visible = false; scene.add(m); }
+  let lastF = -1, sinceRebuild = 1;
+  /**
+   * Rebuild the sand bodies. Allocating LatheGeometry every frame during the
+   * fast intro pour causes GC stutter (the "jerk"), so we throttle to ~30/s and
+   * only when the fraction actually moved — smooth and cheap.
+   * @param {number} f @param {number} [dt]
+   */
+  function rebuildSand(f, dt = 1) {
+    sinceRebuild += dt;
+    const moved = Math.abs(f - lastF) >= 3e-4;
+    if (lastF >= 0 && (!moved || sinceRebuild < 1 / 30)) return;
+    sinceRebuild = 0; lastF = f;
+    apply(topMesh, surface.topProfile(f));
+    apply(botMesh, surface.bottomProfile(f));
+  }
+  /** @param {THREE.Mesh} mesh @param {THREE.Vector2[]|null} pts */
+  function apply(mesh, pts) {
+    mesh.geometry.dispose();
+    if (!pts) { mesh.visible = false; return; }
+    const g = new THREE.LatheGeometry(pts, 64); g.computeVertexNormals();
+    mesh.geometry = g; mesh.visible = true;
+  }
+
+  const controls = new OrbitControls(camera, canvas);
+  Object.assign(controls, {
+    enablePan: false, enableDamping: true, dampingFactor: 0.06,
+    minDistance: 4, maxDistance: 12, minPolarAngle: Math.PI * 0.18, maxPolarAngle: Math.PI * 0.82,
+  });
+
+  function resize() {
+    const w = innerWidth, h = innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  const projScale = () => ((innerHeight * Math.min(devicePixelRatio, 2)) / 2) / Math.tan((camera.fov * Math.PI / 180) / 2);
+
+  resize(); addEventListener('resize', resize);
+  return Object.freeze({ renderer, scene, camera, controls, rebuildSand, projScale,
+    render: () => { controls.update(); renderer.render(scene, camera); } });
+}
+
+/* ===========================================================================
+ * createUI — DOM overlay wiring. Knows nothing about the 3D internals.
+ * ======================================================================== */
+function createUI(store, handlers) {
+  const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
+  const setup = $('setup'), readout = $('readout'), reset = $('reset'), ended = $('ended'), caveat = $('caveat');
+  const els = { secs: $('secs'), y: $('v-years'), mo: $('v-months'), w: $('v-weeks'), d: $('v-days') };
+
+  // Native <input type="date">: OS scroll-wheel on mobile, calendar on desktop.
+  const dob = /** @type {HTMLInputElement} */ ($('dob'));
+  const today = new Date();
+  const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  dob.max = isoOf(today);
+  dob.value = isoOf(new Date(today.getFullYear() - 30, 0, 1));
+
+  setup.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const birthMs = dob.value ? store.parseBirth(dob.value, Date.now()) : null;
+    if (birthMs === null) { dob.showPicker?.(); return; }
+    handlers.onSet(store.freeze(birthMs));
+  });
+  reset.addEventListener('click', () => handlers.onReset());
+
+  let lastSecs = -1;
+  function showActive(active) {
+    setup.classList.toggle('hidden', active);
+    reset.classList.toggle('hidden', !active);
+    if (active) {
+      readout.classList.remove('hidden');
+      requestAnimationFrame(() => { readout.classList.add('show'); caveat.classList.add('show'); });
+    } else {
+      readout.classList.add('hidden'); readout.classList.remove('show'); caveat.classList.remove('show');
+      ended.classList.add('hidden'); ended.style.opacity = '0'; lastSecs = -1;
+    }
+  }
+  function showEnded() { ended.classList.remove('hidden'); requestAnimationFrame(() => { ended.style.opacity = '1'; }); }
+  /** @param {Breakdown} b */
+  function updateReadout(b) {
+    els.secs.textContent = fmt(b.secs); els.y.textContent = fmt(b.years, 1);
+    els.mo.textContent = fmt(b.months); els.w.textContent = fmt(b.weeks); els.d.textContent = fmt(b.days);
+    if (b.secs !== lastSecs) { // subtle per-second breath
+      lastSecs = b.secs;
+      els.secs.classList.remove('tick'); void els.secs.offsetWidth; els.secs.classList.add('tick');
+    }
+  }
+  return Object.freeze({ showActive, showEnded, updateReadout });
+}
+
+/* ===========================================================================
+ * main — wire the modules together and run the loop.
+ * ======================================================================== */
+function main() {
+  const store = createLifeStore();
+  const profile = createProfile();
+  const surface = createSandSurface(profile);
+  const world = createWorld(/** @type {HTMLCanvasElement} */ (document.getElementById('c')), profile, surface);
+  const stream = createStream(world.renderer, profile, surface);
+  world.scene.add(stream.object);
+
+  /** @type {Runtime} */
+  const rt = { fTruth: 1, fRender: 1, elapsed: 0, terminal: false, active: false };
+  /** @type {LifeConfig|null} */
+  let life = null;
+  let lastRead = 1;
+
+  const ui = createUI(store, {
+    /** @param {LifeConfig} c */
+    onSet: (c) => { store.save(c); startLife(c); },
+    onReset: () => { life = null; rt.active = false; store.clear(); ui.showActive(false); },
+  });
+
+  /** @param {LifeConfig} c */
+  function startLife(c) {
+    life = c;
+    rt.fTruth = store.fraction(c, Date.now());
+    rt.active = true;
+    if (rt.fTruth <= 0) {
+      // Born before the assumed lifespan's end: there is no time left to pour.
+      // Settle straight into the finished state — empty top, full bottom, no
+      // fake intro — so the over-70 case reads as a calm "done," not a broken
+      // all-zero flash. fRender=0 + elapsed past the intro keeps the frame loop
+      // (which recomputes fRender from elapsed) in agreement, so no flicker.
+      rt.fRender = 0; rt.elapsed = CONFIG.introSeconds; rt.terminal = true;
+      ui.showActive(true); ui.showEnded();
+    } else {
+      rt.fRender = 1; rt.elapsed = 0; rt.terminal = false; // begin full → intro pours down
+      ui.showActive(true);
+    }
+  }
+
+  let prev = 0;
+  function frame(t) {
+    const dt = prev ? Math.min((t - prev) / 1000, 0.1) : 0; prev = t;
+    stream.setProjScale(world.projScale());
+
+    if (life && rt.active) {
+      rt.elapsed += dt;
+      const now = Date.now();
+      rt.fTruth = store.fraction(life, now); // pure: always reflects real time
+
+      const p = Math.min(1, rt.elapsed / CONFIG.introSeconds);
+      rt.fRender = p < 1 ? lerp(1, rt.fTruth, easeInOutCubic(p)) : rt.fTruth;
+
+      if (p >= 1 && !rt.terminal && rt.fTruth <= 0) { rt.terminal = true; ui.showEnded(); }
+
+      world.rebuildSand(rt.fRender, dt);
+      // Keep the trickle flowing until life is truly over (not merely "low").
+      stream.update(dt, rt.fRender, !rt.terminal && rt.fTruth > 0);
+
+      lastRead += dt;
+      if (lastRead >= 0.25) { lastRead = 0; ui.updateReadout(store.breakdown(life, now)); }
+    } else {
+      // Idle preview behind the setup card shows the FULL, pre-life state so
+      // pressing "begin" continues seamlessly into the pour — no jump.
+      world.rebuildSand(1);
+    }
+
+    world.render();
+    requestAnimationFrame(frame);
+  }
+
+  const existing = store.load();
+  if (existing) startLife(existing);
+  requestAnimationFrame(frame);
+}
+
+main();
+</script>
+</body>
+</html>
